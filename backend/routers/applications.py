@@ -27,15 +27,16 @@ class ApplicationResponse(BaseModel):
     id: int
     job_id: int
     resume_id: int
-    job_title: Optional[str]
-    company: Optional[str]
-    resume_filename: Optional[str]
-    ats_score: Optional[float]
-    edited_resume_path: Optional[str]
+    job_title: Optional[str] = None
+    company: Optional[str] = None
+    resume_filename: Optional[str] = None
+    ats_score: Optional[float] = None
+    edited_resume_path: Optional[str] = None
     status: str
     human_approved: bool
+    notes: Optional[str] = None
     created_at: datetime
-    applied_at: Optional[datetime]
+    applied_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -43,6 +44,10 @@ class ApplicationResponse(BaseModel):
 
 class ApplicationStatusUpdate(BaseModel):
     status: ApplicationStatus
+
+
+class ApplicationNotesUpdate(BaseModel):
+    notes: str
 
 
 class StatsResponse(BaseModel):
@@ -71,6 +76,7 @@ def _app_to_response(app: Application) -> ApplicationResponse:
         edited_resume_path=app.edited_resume_path,
         status=app.status.value if app.status else "pending",
         human_approved=app.human_approved,
+        notes=app.notes,
         created_at=app.created_at,
         applied_at=app.applied_at,
     )
@@ -218,6 +224,22 @@ def trigger_apply(
         "application_id": application_id,
         "status": "applying",
     }
+
+
+@router.put("/{application_id}/notes", response_model=ApplicationResponse)
+def update_application_notes(
+    application_id: int,
+    body: ApplicationNotesUpdate,
+    db: Session = Depends(get_db),
+):
+    """Update the candidate's manual notes for an application."""
+    app = db.query(Application).filter(Application.id == application_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail=f"Application {application_id} not found")
+    app.notes = body.notes
+    db.commit()
+    db.refresh(app)
+    return _app_to_response(app)
 
 
 @router.put("/{application_id}/status", response_model=ApplicationResponse)

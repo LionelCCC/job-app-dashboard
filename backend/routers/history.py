@@ -392,35 +392,51 @@ def delete_tracked_site(site_id: int, db: Session = Depends(get_db)) -> None:
 
 @router.post(
     "/{site_id}/check-now",
-    summary="Trigger an immediate check for a site",
+    summary="Trigger an immediate synchronous check for a site",
 )
 async def trigger_check_now(
     site_id: int,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """
-    Queue an immediate check for the given site as a background task.
-    Returns instantly; the actual scrape runs in the background.
+    Run an immediate check for the given site and return the result.
+
+    Runs synchronously so the caller gets back actual data:
+    - status: "success" | "error" | "no_change"
+    - jobs_found: total job links found
+    - new_jobs: newly saved job records
+    - job_titles_found: list of job titles (may be empty if site uses JS rendering)
+    - error_message: human-readable error if status == "error"
     """
     site = db.query(TrackedSite).filter(TrackedSite.id == site_id).first()
     if site is None:
         raise HTTPException(status_code=404, detail=f"Tracked site {site_id} not found")
 
-    async def _run_check(sid: int) -> None:
-        bg_db: Session = SessionLocal()
-        try:
-            bg_site = bg_db.query(TrackedSite).filter(TrackedSite.id == sid).first()
-            if bg_site:
-                await check_site(bg_site, bg_db)
-        except Exception as exc:
-            logger.error("Background check failed for site_id=%d: %s", sid, exc)
-        finally:
-            bg_db.close()
-
-    background_tasks.add_task(_run_check, site_id)
-    logger.info("Queued immediate check for site_id=%d", site_id)
-    return {"status": "checking", "site_id": site_id}
+    try:
+        log = await check_site(site, db)
+        db.refresh(site)
+        logger.info(
+            "check-now for site_id=%d: status=%s jobs_found=%d new_jobs=%d",
+            site_id, log.status, log.jobs_found, log.new_jobs,
+        )
+        return {
+            "status": log.status or "success",
+            "site_id": site_id,
+            "jobs_found": log.jobs_found or 0,
+            "new_jobs": log.new_jobs or 0,
+            "job_titles_found": log.job_titles_found or [],
+            "error_message": log.error_message,
+        }
+    except Exception as exc:
+        logger.error("check-now failed for site_id=%d: %s", site_id, exc)
+        return {
+            "status": "error",
+            "site_id": site_id,
+            "jobs_found": 0,
+            "new_jobs": 0,
+            "job_titles_found": [],
+            "error_message": str(exc)[:300],
+        }
 
 
 # ---------------------------------------------------------------------------

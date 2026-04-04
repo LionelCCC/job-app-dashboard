@@ -52,7 +52,6 @@ class Job(Base):
     status = Column(SAEnum(JobStatus), nullable=False, default=JobStatus.new)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
-    # Relationships
     applications = relationship("Application", back_populates="job", cascade="all, delete-orphan")
 
     def __repr__(self):
@@ -66,11 +65,10 @@ class Resume(Base):
     filename = Column(String(255), nullable=False)
     original_path = Column(Text, nullable=False)
     category = Column(SAEnum(JobType), nullable=False, default=JobType.SWE)
-    content = Column(Text, nullable=True)   # full extracted text
-    parsed_data = Column(JSON, nullable=True)  # {skills, experience, education, contact_info, certifications, summary}
+    content = Column(Text, nullable=True)          # full extracted plain text
+    parsed_data = Column(JSON, nullable=True)       # structured fields
     uploaded_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
-    # Relationships
     applications = relationship("Application", back_populates="resume", cascade="all, delete-orphan")
 
     def __repr__(self):
@@ -84,17 +82,19 @@ class Application(Base):
     job_id = Column(Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     resume_id = Column(Integer, ForeignKey("resumes.id", ondelete="CASCADE"), nullable=False)
     ats_score = Column(Float, nullable=True)
-    ats_breakdown = Column(JSON, nullable=True)    # full ATS analysis dict
+    ats_breakdown = Column(JSON, nullable=True)         # full ATS analysis dict
     edited_resume_path = Column(Text, nullable=True)
     status = Column(SAEnum(ApplicationStatus), nullable=False, default=ApplicationStatus.pending)
     human_approved = Column(Boolean, nullable=False, default=False)
+    notes = Column(Text, nullable=True)                 # candidate's manual notes
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     applied_at = Column(DateTime, nullable=True)
 
-    # Relationships
     job = relationship("Job", back_populates="applications")
     resume = relationship("Resume", back_populates="applications")
-    ats_analyses = relationship("ATSAnalysis", back_populates="application", cascade="all, delete-orphan")
+    ats_analyses = relationship(
+        "ATSAnalysis", back_populates="application", cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return (
@@ -107,18 +107,19 @@ class ATSAnalysis(Base):
     __tablename__ = "ats_analyses"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    application_id = Column(Integer, ForeignKey("applications.id", ondelete="CASCADE"), nullable=False)
+    application_id = Column(
+        Integer, ForeignKey("applications.id", ondelete="CASCADE"), nullable=False
+    )
     score = Column(Float, nullable=False)
     keyword_score = Column(Float, nullable=False)
     experience_score = Column(Float, nullable=False)
     education_score = Column(Float, nullable=False)
     skills_score = Column(Float, nullable=False)
-    suggestions = Column(JSON, nullable=True)           # list of suggestion strings
-    matched_keywords = Column(JSON, nullable=True)      # list of matched keyword strings
-    missing_keywords = Column(JSON, nullable=True)      # list of missing keyword strings
+    suggestions = Column(JSON, nullable=True)
+    matched_keywords = Column(JSON, nullable=True)
+    missing_keywords = Column(JSON, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
-    # Relationships
     application = relationship("Application", back_populates="ats_analyses")
 
     def __repr__(self):

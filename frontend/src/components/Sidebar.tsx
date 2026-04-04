@@ -11,6 +11,7 @@ import {
   User,
   ChevronRight,
   History,
+  Brain,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -39,6 +40,11 @@ const NAV_ITEMS = [
     label: "History",
     href: "/history",
     icon: History,
+  },
+  {
+    label: "Candidate Memory",
+    href: "/candidate",
+    icon: Brain,
   },
 ];
 

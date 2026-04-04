@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -31,12 +31,12 @@ class JobResponse(BaseModel):
     id: int
     title: str
     company: str
-    location: Optional[str]
-    url: Optional[str]
-    description: Optional[str]
+    location: Optional[str] = None
+    url: Optional[str] = None
+    description: Optional[str] = None
     job_type: str
-    salary_range: Optional[str]
-    posted_date: Optional[datetime]
+    salary_range: Optional[str] = None
+    posted_date: Optional[datetime] = None
     status: str
     created_at: datetime
 
@@ -49,14 +49,26 @@ class JobStatusUpdate(BaseModel):
 
 
 class JobSearchRequest(BaseModel):
-    keywords: str
+    keywords: str = ""                             # optional — blank = search all recent
     location: str = "Remote"
     job_types: list[str] = []
-    sources: list[str] = ["indeed", "linkedin"]
+    sources: list[str] = ["linkedin", "indeed"]   # backend expects lowercase
 
 
 class AddJobUrlRequest(BaseModel):
     url: str
+
+
+# Mapping from any casing the frontend might send → canonical backend name
+_SOURCE_ALIASES: dict[str, str] = {
+    "linkedin": "linkedin",
+    "LinkedIn": "linkedin",
+    "indeed": "indeed",
+    "Indeed": "indeed",
+}
+
+# Sources that are not supported for keyword search
+_UNSUPPORTED_SOURCES = {"company boards", "company_boards", "companyboards"}
 
 
 # ---------------------------------------------------------------------------
@@ -172,31 +184,86 @@ def list_jobs(
 def search_jobs(request: JobSearchRequest, db: Session = Depends(get_db)):
     """
     Trigger a job search across configured sources and store results.
-    Returns the list of newly saved jobs.
+
+    Sources are normalized to lowercase. Unsupported sources (e.g. "Company Boards")
+    are skipped with a human-readable error message in the response.
+    keywords is optional — empty string means "search general tech roles".
     """
     all_raw: list[dict] = []
+    errors: list[str] = []
 
-    for source in request.sources:
+    for raw_source in request.sources:
+        # Normalize source name
+        source_lower = raw_source.strip().lower()
+
+        # Check for explicitly unsupported
+        if source_lower in _UNSUPPORTED_SOURCES:
+            errors.append(
+                f'"{raw_source}" cannot be searched by keyword. '
+                "Use POST /jobs/add-url to add individual postings from company careers pages."
+            )
+            continue
+
+        # Resolve alias
+        canonical = _SOURCE_ALIASES.get(raw_source) or _SOURCE_ALIASES.get(source_lower)
+        if not canonical:
+            errors.append(
+                f'"{raw_source}" is an unrecognized source. '
+                "Supported sources: linkedin, indeed."
+            )
+            continue
+
         try:
-            if source == "indeed":
+            if canonical == "indeed":
                 results = search_indeed_jobs(
-                    request.keywords, request.location, request.job_types
+                    request.keywords or "software engineer",
+                    request.location,
+                    request.job_types,
                 )
                 all_raw.extend(results)
-            elif source == "linkedin":
-                results = search_linkedin_jobs(request.keywords, request.location)
+                logger.info("Indeed: %d results", len(results))
+
+            elif canonical == "linkedin":
+                results = search_linkedin_jobs(
+                    request.keywords or "software engineer",
+                    request.location,
+                )
                 all_raw.extend(results)
-            else:
-                logger.warning("Unknown source %r – skipping", source)
+                logger.info("LinkedIn: %d results", len(results))
+
         except Exception as exc:
-            logger.error("Search failed for source %r: %s", source, exc)
-            # Continue with other sources
+            error_msg = str(exc)
+            logger.error("Search failed for source %r: %s", canonical, error_msg)
+            # Provide human-readable explanation for common failures
+            if "429" in error_msg or "rate" in error_msg.lower():
+                errors.append(
+                    f"{canonical.title()} rate-limited this request. "
+                    "Wait a few minutes and try again."
+                )
+            elif "403" in error_msg or "blocked" in error_msg.lower():
+                errors.append(
+                    f"{canonical.title()} blocked the scraping request. "
+                    "This is expected occasionally — try adding jobs by URL instead."
+                )
+            else:
+                errors.append(
+                    f"{canonical.title()} search failed: {error_msg[:120]}"
+                )
+
+    # Filter by requested job types if specified
+    if request.job_types:
+        all_raw = [
+            j for j in all_raw
+            if j.get("job_type") in request.job_types
+        ]
 
     saved = _save_jobs_to_db(all_raw, db)
+
     return {
         "scraped": len(all_raw),
         "saved": len(saved),
         "jobs": [_job_to_response(j) for j in saved],
+        "errors": errors,
     }
 
 
@@ -224,13 +291,23 @@ def delete_job(job_id: int, db: Session = Depends(get_db)):
 def add_job_url(request: AddJobUrlRequest, db: Session = Depends(get_db)):
     """
     Add a specific job URL manually.
-    Scrapes the page to extract job details.
+    Scrapes the page to extract title, company, description, and location.
+    Works with Greenhouse, Lever, Workday, LinkedIn, Indeed, and most ATS platforms.
     """
+    # Check for duplicate first
+    existing = db.query(Job).filter(Job.url == request.url).first()
+    if existing:
+        return _job_to_response(existing)
+
     try:
         details = scrape_company_job_board(request.url)
     except Exception as exc:
         logger.error("Failed to scrape %s: %s", request.url, exc)
-        raise HTTPException(status_code=422, detail=f"Could not scrape job from URL: {exc}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Could not scrape job from URL: {exc}. "
+                   "Make sure the URL points to a public job posting page.",
+        )
 
     jt_str = determine_job_type(
         details.get("title", ""), details.get("description", "")
@@ -239,11 +316,6 @@ def add_job_url(request: AddJobUrlRequest, db: Session = Depends(get_db)):
         job_type_enum = JobType(jt_str)
     except ValueError:
         job_type_enum = JobType.SWE
-
-    # Check for duplicate
-    existing = db.query(Job).filter(Job.url == request.url).first()
-    if existing:
-        return _job_to_response(existing)
 
     job = Job(
         title=details.get("title", "Unknown Title"),

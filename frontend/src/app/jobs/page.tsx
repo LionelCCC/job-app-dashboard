@@ -12,6 +12,7 @@ import {
   CheckSquare,
   Square,
   X,
+  Info,
 } from "lucide-react";
 import clsx from "clsx";
 import JobCard from "@/components/JobCard";
@@ -43,12 +44,17 @@ function CheckboxGroup<T extends string>({
   options,
   selected,
   onChange,
+  disabledOptions,
+  disabledTooltips,
 }: {
   options: T[];
   selected: T[];
   onChange: (vals: T[]) => void;
+  disabledOptions?: T[];
+  disabledTooltips?: Partial<Record<T, string>>;
 }) {
   const toggle = (val: T) => {
+    if (disabledOptions?.includes(val)) return;
     onChange(
       selected.includes(val)
         ? selected.filter((v) => v !== val)
@@ -59,19 +65,30 @@ function CheckboxGroup<T extends string>({
     <div className="flex flex-wrap gap-2">
       {options.map((opt) => {
         const active = selected.includes(opt);
+        const disabled = disabledOptions?.includes(opt);
+        const tooltip = disabledTooltips?.[opt];
         return (
           <button
             key={opt}
             type="button"
             onClick={() => toggle(opt)}
+            title={tooltip}
             className={clsx(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all",
-              active
+              disabled
+                ? "bg-slate-700/20 text-slate-600 border-slate-700/30 cursor-not-allowed"
+                : active
                 ? "bg-indigo-600/20 text-indigo-300 border-indigo-500/40"
                 : "bg-slate-700/40 text-slate-400 border-slate-600/50 hover:border-slate-500 hover:text-slate-300"
             )}
           >
-            {active ? <CheckSquare size={12} /> : <Square size={12} />}
+            {disabled ? (
+              <Info size={12} />
+            ) : active ? (
+              <CheckSquare size={12} />
+            ) : (
+              <Square size={12} />
+            )}
             {opt}
           </button>
         );
@@ -87,6 +104,8 @@ export default function JobsPage() {
   const [searching, setSearching] = useState(false);
   const [addingUrl, setAddingUrl] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchWarnings, setSearchWarnings] = useState<string[]>([]);
+  const [searchInfo, setSearchInfo] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("all");
 
   // Search form
@@ -95,7 +114,7 @@ export default function JobsPage() {
   const [selectedTypes, setSelectedTypes] = useState<JobType[]>([]);
   const [selectedSources, setSelectedSources] = useState<
     (typeof SOURCES)[number][]
-  >([]);
+  >(["LinkedIn", "Indeed"]);
 
   // URL add
   const [urlInput, setUrlInput] = useState("");
@@ -133,31 +152,39 @@ export default function JobsPage() {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!keywords.trim() && selectedTypes.length === 0) return;
     setSearching(true);
     setError(null);
+    setSearchWarnings([]);
+    setSearchInfo(null);
+
     try {
       const params: SearchParams = {
         keywords: keywords.trim() || undefined,
         location: location.trim() || undefined,
         job_types: selectedTypes.length ? selectedTypes : undefined,
-        sources: selectedSources.length
-          ? (selectedSources as SearchParams["sources"])
-          : undefined,
-        limit: 50,
+        sources: selectedSources.length ? [...selectedSources] : undefined,
       };
-      const { task_id } = await searchJobs(params);
-      // Poll or just reload after a delay
-      setTimeout(() => loadJobs(), 3000);
-      setError(null);
-      // Show task started notification
-      alert(
-        `Search started (task: ${task_id}). Results will appear shortly.`
-      );
+      const result = await searchJobs(params);
+
+      // Merge new jobs into existing list (deduplicate by id)
+      if (result.jobs.length > 0) {
+        setJobs((prev) => {
+          const existingIds = new Set(prev.map((j) => j.id));
+          const fresh = result.jobs.filter((j) => !existingIds.has(j.id));
+          return [...fresh, ...prev];
+        });
+        setSearchInfo(
+          `Found ${result.scraped} jobs · ${result.saved} new saved`
+        );
+      } else if (result.errors.length === 0) {
+        setSearchInfo("No new jobs found matching your criteria.");
+      }
+
+      if (result.errors.length > 0) {
+        setSearchWarnings(result.errors);
+      }
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Search failed"
-      );
+      setError(err instanceof Error ? err.message : "Search failed");
     } finally {
       setSearching(false);
     }
@@ -169,7 +196,10 @@ export default function JobsPage() {
     setUrlError(null);
     try {
       const job = await addJobUrl(urlInput.trim());
-      setJobs((prev) => [job, ...prev]);
+      setJobs((prev) => {
+        if (prev.some((j) => j.id === job.id)) return prev;
+        return [job, ...prev];
+      });
       setUrlInput("");
     } catch (err) {
       setUrlError(
@@ -259,7 +289,8 @@ export default function JobsPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-slate-500 mb-1.5">
-                Keywords
+                Keywords{" "}
+                <span className="text-slate-600">(optional — leave blank to search all)</span>
               </label>
               <input
                 type="text"
@@ -286,7 +317,7 @@ export default function JobsPage() {
           {/* Job types */}
           <div>
             <label className="block text-xs text-slate-500 mb-2">
-              Job Types
+              Filter by Job Type
             </label>
             <CheckboxGroup
               options={JOB_TYPES}
@@ -304,15 +335,44 @@ export default function JobsPage() {
               options={[...SOURCES]}
               selected={selectedSources}
               onChange={setSelectedSources}
+              disabledOptions={["Company Boards"]}
+              disabledTooltips={{
+                "Company Boards":
+                  "Company Boards cannot be keyword-searched. Add individual URLs below using 'Add Job by URL'.",
+              }}
             />
+            <p className="mt-1.5 text-xs text-slate-600">
+              <Info size={10} className="inline mr-1" />
+              Company-specific boards (Google Careers, Greenhouse, etc.) require
+              direct URLs — use Add Job by URL below.
+            </p>
           </div>
+
+          {/* Search info / warnings */}
+          {searchInfo && (
+            <div className="flex items-center gap-2 text-xs text-green-400 bg-green-400/10 border border-green-400/20 rounded-lg px-3 py-2">
+              <CheckSquare size={12} />
+              {searchInfo}
+            </div>
+          )}
+          {searchWarnings.length > 0 && (
+            <div className="space-y-1">
+              {searchWarnings.map((w, i) => (
+                <div
+                  key={i}
+                  className="flex items-start gap-2 text-xs text-yellow-400 bg-yellow-400/10 border border-yellow-400/20 rounded-lg px-3 py-2"
+                >
+                  <AlertCircle size={12} className="mt-0.5 flex-shrink-0" />
+                  {w}
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="flex justify-end">
             <button
               type="submit"
-              disabled={
-                searching || (!keywords.trim() && selectedTypes.length === 0)
-              }
+              disabled={searching}
               className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {searching ? (
@@ -328,10 +388,13 @@ export default function JobsPage() {
 
       {/* Add URL */}
       <div className="bg-slate-800 border border-slate-700/60 rounded-xl p-5">
-        <h2 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-slate-300 mb-1 flex items-center gap-2">
           <Link2 size={15} className="text-indigo-400" />
           Add Job by URL
         </h2>
+        <p className="text-xs text-slate-600 mb-3">
+          Works with Greenhouse, Lever, Workday, LinkedIn, Indeed, and most company careers pages.
+        </p>
         <div className="flex gap-2">
           <input
             type="url"
@@ -340,7 +403,8 @@ export default function JobsPage() {
               setUrlInput(e.target.value);
               setUrlError(null);
             }}
-            placeholder="https://www.linkedin.com/jobs/view/..."
+            onKeyDown={(e) => e.key === "Enter" && handleAddUrl()}
+            placeholder="https://boards.greenhouse.io/company/jobs/123..."
             className="flex-1 px-3 py-2.5 bg-slate-900/60 border border-slate-600/60 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
           />
           <button
@@ -416,7 +480,7 @@ export default function JobsPage() {
             <Search size={40} className="text-slate-700" />
             <p className="text-base font-medium text-slate-500">No jobs found</p>
             <p className="text-sm text-slate-600">
-              Try searching with different keywords or add a job URL above
+              Search above or paste a job URL to get started
             </p>
           </div>
         ) : (
@@ -433,7 +497,7 @@ export default function JobsPage() {
         )}
       </div>
 
-      {/* Score resume selector modal */}
+      {/* Resume selector modal */}
       {scoreModal && !scoreModal.result && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
@@ -461,6 +525,13 @@ export default function JobsPage() {
               <p className="text-xs text-slate-400">{scoreModal.job.company}</p>
             </div>
 
+            {scoring && (
+              <div className="mb-4 flex items-center gap-3 text-sm text-indigo-400 bg-indigo-400/10 border border-indigo-400/20 rounded-lg px-3 py-2">
+                <Loader2 size={14} className="animate-spin flex-shrink-0" />
+                Running ATS analysis with Claude AI… this takes ~20–40 seconds
+              </div>
+            )}
+
             {resumes.length === 0 ? (
               <div className="text-center py-8 text-slate-500">
                 <p className="text-sm">No resumes uploaded yet</p>
@@ -468,7 +539,7 @@ export default function JobsPage() {
                   href="/resumes"
                   className="text-xs text-indigo-400 mt-2 block hover:text-indigo-300"
                 >
-                  Upload a resume first
+                  Upload a resume first →
                 </a>
               </div>
             ) : (
@@ -480,16 +551,9 @@ export default function JobsPage() {
                     disabled={scoring}
                     className="w-full flex items-center gap-3 p-3 rounded-lg bg-slate-700/40 border border-slate-600/50 hover:bg-slate-700/70 hover:border-slate-500 text-left transition-all disabled:opacity-50"
                   >
-                    {scoring ? (
-                      <Loader2
-                        size={16}
-                        className="text-indigo-400 animate-spin flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="w-8 h-8 rounded bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center flex-shrink-0 text-indigo-400 text-xs font-bold">
-                        {resume.category}
-                      </div>
-                    )}
+                    <div className="w-8 h-8 rounded bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center flex-shrink-0 text-indigo-400 text-xs font-bold">
+                      {resume.category}
+                    </div>
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-slate-200 truncate">
                         {resume.filename}

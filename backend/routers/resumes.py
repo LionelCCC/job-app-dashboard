@@ -1,5 +1,6 @@
 """
 FastAPI router for resume management endpoints.
+Supports PDF, DOCX, and LaTeX (.tex) uploads.
 """
 
 import logging
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 import aiofiles
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -24,7 +25,7 @@ router = APIRouter(prefix="/resumes", tags=["resumes"])
 UPLOAD_DIR = Path("/Users/lionelc/Job app dashboard/backend/resumes/uploaded")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc"}
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".tex", ".latex"}
 
 
 # ---------------------------------------------------------------------------
@@ -36,8 +37,8 @@ class ResumeResponse(BaseModel):
     filename: str
     original_path: str
     category: str
-    content: Optional[str]
-    parsed_data: Optional[dict]
+    content: Optional[str] = None
+    parsed_data: Optional[dict] = None
     uploaded_at: datetime
 
     class Config:
@@ -65,7 +66,10 @@ def _validate_extension(filename: str) -> str:
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+            detail=(
+                f"Unsupported file type '{ext}'. "
+                f"Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+            ),
         )
     return ext
 
@@ -76,7 +80,7 @@ def _validate_extension(filename: str) -> str:
 
 @router.get("", response_model=list[ResumeResponse])
 def list_resumes(db: Session = Depends(get_db)):
-    """Return all uploaded resumes."""
+    """Return all uploaded resumes, newest first."""
     resumes = db.query(Resume).order_by(Resume.uploaded_at.desc()).all()
     return [_resume_to_response(r) for r in resumes]
 
@@ -84,11 +88,15 @@ def list_resumes(db: Session = Depends(get_db)):
 @router.post("/upload", response_model=ResumeResponse)
 async def upload_resume(
     file: UploadFile = File(...),
+    category: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
     """
-    Upload a resume file (PDF or DOCX), parse it, and store in the database.
-    The file is saved under /resumes/uploaded/ with a timestamped filename.
+    Upload a resume file (PDF, DOCX, or LaTeX .tex), parse it,
+    and store the result in the database.
+
+    The category is optional — if omitted, it will be auto-detected from the
+    resume content. Valid values: SWE, DE, DA, DS, MLE, AIE.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided.")
@@ -113,24 +121,32 @@ async def upload_resume(
         parsed = parse_resume(str(save_path))
     except Exception as exc:
         logger.error("Resume parsing failed for %s: %s", save_path, exc)
-        # Still save the record with empty parsed data so the file isn't lost
-        parsed = {"full_text": "", "contact_info": {}, "skills": [], "experience": [],
-                  "education": [], "certifications": [], "summary": ""}
+        parsed = {
+            "full_text": "",
+            "contact_info": {},
+            "skills": [],
+            "experience": [],
+            "education": [],
+            "certifications": [],
+            "summary": "",
+        }
 
     full_text = parsed.get("full_text", "")
 
-    # Determine category
-    try:
-        category_str = categorize_resume(parsed)
-    except Exception:
-        category_str = "SWE"
+    # Determine category: use provided value, or auto-detect from content
+    if category:
+        category_str = category.upper()
+    else:
+        try:
+            category_str = categorize_resume(parsed)
+        except Exception:
+            category_str = "SWE"
 
     try:
         category_enum = JobType(category_str)
     except ValueError:
         category_enum = JobType.SWE
 
-    # Build the parsed_data payload (exclude full_text to avoid duplication)
     parsed_data_payload = {
         "contact_info": parsed.get("contact_info", {}),
         "skills": parsed.get("skills", []),
@@ -151,7 +167,10 @@ async def upload_resume(
     db.commit()
     db.refresh(resume)
 
-    logger.info("Resume uploaded and parsed: id=%d filename=%s", resume.id, resume.filename)
+    logger.info(
+        "Resume uploaded: id=%d filename=%s category=%s",
+        resume.id, resume.filename, category_enum.value,
+    )
     return _resume_to_response(resume)
 
 
@@ -165,7 +184,6 @@ def get_resumes_by_category(category: str, db: Session = Depends(get_db)):
             status_code=400,
             detail=f"Invalid category '{category}'. Valid: {[e.value for e in JobType]}",
         )
-
     resumes = (
         db.query(Resume)
         .filter(Resume.category == category_enum)
@@ -186,7 +204,7 @@ def get_resume(resume_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/{resume_id}", response_model=dict)
 def delete_resume(resume_id: int, db: Session = Depends(get_db)):
-    """Delete a resume by ID. Also removes the file from disk."""
+    """Delete a resume by ID and remove the file from disk."""
     resume = db.query(Resume).filter(Resume.id == resume_id).first()
     if not resume:
         raise HTTPException(status_code=404, detail=f"Resume {resume_id} not found")

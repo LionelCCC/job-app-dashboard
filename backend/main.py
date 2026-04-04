@@ -10,6 +10,14 @@ import logging
 import os
 from pathlib import Path
 
+# Load .env before anything else so ANTHROPIC_API_KEY is in os.environ
+from dotenv import load_dotenv
+# Try both relative (from CWD) and absolute (relative to this file) paths
+_ENV_PATH = Path("/Users/lionelc/Job app dashboard/.env")
+if not _ENV_PATH.exists():
+    _ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(_ENV_PATH, override=False)   # override=False: shell env takes precedence
+
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +28,7 @@ from database import create_all_tables, engine, get_db
 from models import Job, Resume, Application, ATSAnalysis, JobStatus, ApplicationStatus
 from routers import applications, jobs, resumes, scoring
 from routers.history import router as history_router
+from routers.candidate import router as candidate_router
 from services.site_monitor import run_scheduler_loop
 
 # ---------------------------------------------------------------------------
@@ -98,11 +107,24 @@ app.mount(
 @app.on_event("startup")
 async def on_startup():
     """Create database tables on application startup and launch the scheduler."""
+    # Warn early if ANTHROPIC_API_KEY is missing
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        logger.warning(
+            "ANTHROPIC_API_KEY is not set. "
+            "ATS scoring and resume editing will fail with 500. "
+            "Add it to %s or export it in your shell.", _ENV_PATH
+        )
+    else:
+        logger.info("ANTHROPIC_API_KEY loaded ✓")
+
     logger.info("Creating database tables if they do not exist…")
     create_all_tables()
     # Create history tables (TrackedSite, SiteCheckLog) using their own metadata
     models_history.Base.metadata.create_all(bind=engine)
-    logger.info("Database ready at /Users/lionelc/Job app dashboard/jobs.db")
+    # Create candidate profile table
+    from models_candidate import Base as CandidateBase
+    CandidateBase.metadata.create_all(bind=engine)
+    logger.info("Database ready.")
     # Start the background site-monitoring scheduler
     asyncio.create_task(run_scheduler_loop())
     logger.info("Site-monitor scheduler task started.")
@@ -117,6 +139,7 @@ app.include_router(resumes.router, prefix="/api")
 app.include_router(scoring.router, prefix="/api")
 app.include_router(applications.router, prefix="/api")
 app.include_router(history_router, prefix="/api/history", tags=["history"])
+app.include_router(candidate_router, prefix="/api", tags=["candidate"])
 
 # ---------------------------------------------------------------------------
 # Health check
