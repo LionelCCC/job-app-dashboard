@@ -416,7 +416,7 @@ export default function DashboardPage() {
                       </p>
                       <p className="text-xs text-slate-500 truncate">
                         {app.job?.company ?? "Unknown"} •{" "}
-                        {formatDate(app.updated_at || app.created_at)}
+                        {formatDate(app.applied_at || app.created_at)}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">

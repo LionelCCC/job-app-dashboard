@@ -87,7 +87,7 @@ export default function ApplicationCard({
         )}
         <span className="flex items-center gap-1 text-xs text-slate-600 ml-auto">
           <Clock size={10} />
-          {formatDate(application.updated_at || application.created_at)}
+          {formatDate(application.applied_at || application.created_at)}
         </span>
       </div>
 

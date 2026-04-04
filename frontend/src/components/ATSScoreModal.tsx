@@ -98,10 +98,7 @@ export default function ATSScoreModal({
   onEditApproved,
 }: ATSScoreModalProps) {
   const [editLoading, setEditLoading] = useState(false);
-  const [editResult, setEditResult] = useState<{
-    diff: string;
-    edited_content: string;
-  } | null>(null);
+  const [editResult, setEditResult] = useState<ATSResult | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
 
   const handleEdit = async () => {
@@ -150,19 +147,19 @@ export default function ATSScoreModal({
               <div className="flex-1 space-y-3">
                 <ScoreBar
                   label="Keyword Match"
-                  value={breakdown?.keyword_match ?? 0}
+                  value={breakdown?.keyword_score ?? 0}
                 />
                 <ScoreBar
                   label="Experience Match"
-                  value={breakdown?.experience_match ?? 0}
+                  value={breakdown?.experience_score ?? 0}
                 />
                 <ScoreBar
                   label="Education Match"
-                  value={breakdown?.education_match ?? 0}
+                  value={breakdown?.education_score ?? 0}
                 />
                 <ScoreBar
                   label="Skills Match"
-                  value={breakdown?.skills_match ?? 0}
+                  value={breakdown?.skills_score ?? 0}
                 />
               </div>
             </div>
@@ -249,7 +246,7 @@ export default function ATSScoreModal({
                   AI Resume Edit Preview
                 </h3>
                 <pre className="text-xs text-slate-400 whitespace-pre-wrap font-mono leading-relaxed max-h-48 overflow-y-auto">
-                  {editResult.diff || editResult.edited_content}
+                  {editResult.suggestions?.join("\n") || "Resume has been edited and optimized for this job."}
                 </pre>
                 <button
                   onClick={() => {

@@ -258,7 +258,7 @@ function KanbanCard({
           </span>
         )}
         <span className="text-xs text-slate-600 ml-auto">
-          {formatDate(app.updated_at || app.created_at)}
+          {formatDate(app.applied_at || app.created_at)}
         </span>
       </div>
 
@@ -401,9 +401,9 @@ export default function ApplicationsPage() {
   const handleEditFromScore = async (applicationId: number) => {
     setEditingAppId(applicationId);
     try {
-      const { diff, edited_content } = await editResume(applicationId);
+      const result = await editResume(applicationId);
       setScoreModal(null);
-      setEditModal({ applicationId, diff, editedContent: edited_content });
+      setEditModal({ applicationId, diff: result.suggestions?.join("\n") || "", editedContent: "" });
     } catch (err) {
       alert(err instanceof Error ? err.message : "Edit failed");
     } finally {

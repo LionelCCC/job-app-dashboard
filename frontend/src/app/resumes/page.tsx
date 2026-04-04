@@ -14,7 +14,6 @@ import {
   Briefcase,
   GraduationCap,
   Code,
-  Star,
   Calendar,
 } from "lucide-react";
 import clsx from "clsx";
@@ -38,12 +37,10 @@ function ResumeDetailPanel({
   onClose: () => void;
 }) {
   const parsed = resume.parsed_data;
-  const contact = parsed?.contact;
+  const contact = parsed?.contact_info;
   const skills = parsed?.skills ?? [];
   const experience = parsed?.experience ?? [];
   const education = parsed?.education ?? [];
-  const scoredJobs = resume.scored_jobs ?? [];
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-end p-0">
       <div
@@ -62,7 +59,7 @@ function ResumeDetailPanel({
                 {resume.filename}
               </h2>
               <p className="text-xs text-slate-500">
-                {formatDate(resume.upload_date)}
+                {formatDate(resume.uploaded_at)}
               </p>
             </div>
           </div>
@@ -106,9 +103,7 @@ function ResumeDetailPanel({
                 {contact.phone && (
                   <p className="text-xs text-slate-400">{contact.phone}</p>
                 )}
-                {contact.location && (
-                  <p className="text-xs text-slate-400">{contact.location}</p>
-                )}
+                
                 {contact.linkedin && (
                   <a
                     href={contact.linkedin}
@@ -168,14 +163,15 @@ function ResumeDetailPanel({
                   >
                     <div className="absolute -left-[5px] top-0 w-2.5 h-2.5 rounded-full bg-indigo-500/60 border border-indigo-400" />
                     <p className="text-sm font-medium text-slate-200">
-                      {exp.title}
+                      {exp.role}
                     </p>
                     <p className="text-xs text-slate-400">{exp.company}</p>
-                    <p className="text-xs text-slate-600 flex items-center gap-1 mt-0.5">
-                      <Calendar size={10} />
-                      {exp.start_date}
-                      {exp.end_date ? ` – ${exp.end_date}` : " – Present"}
-                    </p>
+                    {exp.duration && (
+                      <p className="text-xs text-slate-600 flex items-center gap-1 mt-0.5">
+                        <Calendar size={10} />
+                        {exp.duration}
+                      </p>
+                    )}
                     {exp.description && (
                       <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
                         {exp.description}
@@ -204,40 +200,6 @@ function ResumeDetailPanel({
                     {edu.year && (
                       <p className="text-xs text-slate-600">{edu.year}</p>
                     )}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Scored jobs */}
-          {scoredJobs.length > 0 && (
-            <section>
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2 mb-3">
-                <Star size={12} />
-                ATS Scores
-              </h3>
-              <div className="space-y-2">
-                {scoredJobs.map((sj) => (
-                  <div
-                    key={sj.job_id}
-                    className="flex items-center justify-between text-xs"
-                  >
-                    <span className="text-slate-400 truncate flex-1 mr-2">
-                      {sj.job_title}
-                    </span>
-                    <span
-                      className={clsx(
-                        "font-semibold flex-shrink-0",
-                        sj.score >= 80
-                          ? "text-green-400"
-                          : sj.score >= 60
-                          ? "text-yellow-400"
-                          : "text-red-400"
-                      )}
-                    >
-                      {sj.score}%
-                    </span>
                   </div>
                 ))}
               </div>
@@ -481,7 +443,6 @@ export default function ResumesPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {resumes.map((resume) => {
               const skills = resume.parsed_data?.skills ?? [];
-              const scoredJobs = resume.scored_jobs ?? [];
 
               return (
                 <div
@@ -498,7 +459,7 @@ export default function ResumesPage() {
                         {resume.filename}
                       </p>
                       <p className="text-xs text-slate-500">
-                        {formatDate(resume.upload_date)}
+                        {formatDate(resume.uploaded_at)}
                       </p>
                     </div>
                     <span
@@ -532,14 +493,6 @@ export default function ResumesPage() {
                           </span>
                         )}
                       </div>
-                    </div>
-                  )}
-
-                  {/* Scored jobs */}
-                  {scoredJobs.length > 0 && (
-                    <div className="text-xs text-slate-500">
-                      Scored against {scoredJobs.length} job
-                      {scoredJobs.length !== 1 ? "s" : ""}
                     </div>
                   )}
 

@@ -1,4 +1,5 @@
-const API_BASE = "http://localhost:8000";
+// All requests go to http://localhost:8000/api/...
+const API_BASE = "http://localhost:8000/api";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -17,7 +18,7 @@ export interface Job {
   company: string;
   location: string;
   job_type: JobType;
-  source: string;
+  source?: string;
   url: string;
   description?: string;
   posted_date?: string;
@@ -30,38 +31,36 @@ export interface Resume {
   id: number;
   filename: string;
   category: JobType;
-  upload_date: string;
+  uploaded_at: string;
   parsed_data?: {
-    contact?: {
+    contact_info?: {
       name?: string;
       email?: string;
       phone?: string;
-      location?: string;
       linkedin?: string;
       github?: string;
     };
     skills?: string[];
     experience?: Array<{
-      title: string;
-      company: string;
-      start_date: string;
-      end_date?: string;
+      company?: string;
+      role?: string;
+      duration?: string;
       description?: string;
     }>;
     education?: Array<{
-      degree: string;
-      institution: string;
+      institution?: string;
+      degree?: string;
       year?: string;
     }>;
+    summary?: string;
   };
-  scored_jobs?: Array<{ job_id: number; job_title: string; score: number }>;
 }
 
 export interface ATSBreakdown {
-  keyword_match: number;
-  experience_match: number;
-  education_match: number;
-  skills_match: number;
+  keyword_score: number;
+  experience_score: number;
+  education_score: number;
+  skills_score: number;
 }
 
 export interface ATSResult {
@@ -69,10 +68,13 @@ export interface ATSResult {
   job_id: number;
   resume_id: number;
   overall_score: number;
-  breakdown: ATSBreakdown;
+  ats_score?: number;
+  breakdown?: ATSBreakdown;
   matched_keywords: string[];
   missing_keywords: string[];
   suggestions: string[];
+  ats_friendly_issues?: string[];
+  verdict?: "PASS" | "FAIL";
   created_at: string;
 }
 
@@ -82,20 +84,19 @@ export interface Application {
   resume_id: number;
   status: ApplicationStatus;
   ats_score?: number;
+  human_approved?: boolean;
   job?: Job;
   resume?: Resume;
   ats_result?: ATSResult;
   created_at: string;
-  updated_at: string;
-  fields_filled?: string[];
-  edited_resume_diff?: string;
+  applied_at?: string;
 }
 
 export interface SearchParams {
   keywords?: string;
   location?: string;
   job_types?: JobType[];
-  sources?: JobSource[];
+  sources?: string[];
   limit?: number;
 }
 
@@ -134,9 +135,15 @@ async function handleResponse<T>(res: Response): Promise<T> {
     }
     throw new Error(errorMsg);
   }
-  // 204 No Content
   if (res.status === 204) return undefined as T;
   return res.json();
+}
+
+// ─── Dashboard Stats ─────────────────────────────────────────────────────────
+
+export async function fetchStats(): Promise<Stats> {
+  const res = await fetch(`${API_BASE}/stats`, { cache: "no-store" });
+  return handleResponse<Stats>(res);
 }
 
 // ─── Job Endpoints ────────────────────────────────────────────────────────────
@@ -150,21 +157,21 @@ export async function fetchJobs(filters?: {
   if (filters?.status) params.set("status", filters.status);
   if (filters?.job_type) params.set("job_type", filters.job_type);
   if (filters?.search) params.set("search", filters.search);
-
   const url = `${API_BASE}/jobs${params.toString() ? `?${params}` : ""}`;
   const res = await fetch(url, { cache: "no-store" });
-  return handleResponse<Job[]>(res);
+  const data = await handleResponse<{ jobs: Job[]; total: number } | Job[]>(res);
+  return Array.isArray(data) ? data : (data as { jobs: Job[] }).jobs ?? [];
 }
 
 export async function searchJobs(
   params: SearchParams
-): Promise<{ task_id: string }> {
+): Promise<{ task_id?: string; jobs_found?: number }> {
   const res = await fetch(`${API_BASE}/jobs/search`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
   });
-  return handleResponse<{ task_id: string }>(res);
+  return handleResponse<{ task_id?: string; jobs_found?: number }>(res);
 }
 
 export async function addJobUrl(url: string): Promise<Job> {
@@ -183,14 +190,10 @@ export async function deleteJob(id: number): Promise<void> {
 
 // ─── Resume Endpoints ─────────────────────────────────────────────────────────
 
-export async function uploadResume(
-  file: File,
-  category: JobType
-): Promise<Resume> {
+export async function uploadResume(file: File, category: JobType): Promise<Resume> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("category", category);
-
   const res = await fetch(`${API_BASE}/resumes/upload`, {
     method: "POST",
     body: formData,
@@ -208,13 +211,10 @@ export async function deleteResume(id: number): Promise<void> {
   return handleResponse<void>(res);
 }
 
-// ─── ATS / Analysis Endpoints ─────────────────────────────────────────────────
+// ─── Scoring / ATS Endpoints ──────────────────────────────────────────────────
 
-export async function analyzeResume(
-  jobId: number,
-  resumeId: number
-): Promise<ATSResult> {
-  const res = await fetch(`${API_BASE}/analyze`, {
+export async function analyzeResume(jobId: number, resumeId: number): Promise<ATSResult> {
+  const res = await fetch(`${API_BASE}/scoring/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ job_id: jobId, resume_id: resumeId }),
@@ -222,36 +222,30 @@ export async function analyzeResume(
   return handleResponse<ATSResult>(res);
 }
 
-export async function editResume(applicationId: number): Promise<{
-  diff: string;
-  edited_content: string;
-}> {
-  const res = await fetch(`${API_BASE}/applications/${applicationId}/edit`, {
+export async function editResume(applicationId: number): Promise<ATSResult> {
+  const res = await fetch(`${API_BASE}/scoring/edit`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ application_id: applicationId }),
   });
-  return handleResponse<{ diff: string; edited_content: string }>(res);
+  return handleResponse<ATSResult>(res);
 }
 
-export async function approveEdit(applicationId: number): Promise<void> {
-  const res = await fetch(
-    `${API_BASE}/applications/${applicationId}/approve-edit`,
-    { method: "POST" }
-  );
-  return handleResponse<void>(res);
+export async function approveEdit(applicationId: number): Promise<ATSResult> {
+  const res = await fetch(`${API_BASE}/scoring/approve/${applicationId}`, {
+    method: "POST",
+  });
+  return handleResponse<ATSResult>(res);
+}
+
+export async function getScoringResult(applicationId: number): Promise<ATSResult> {
+  const res = await fetch(`${API_BASE}/scoring/result/${applicationId}`, {
+    cache: "no-store",
+  });
+  return handleResponse<ATSResult>(res);
 }
 
 // ─── Application Endpoints ────────────────────────────────────────────────────
-
-export async function applyToJob(applicationId: number): Promise<{
-  status: string;
-  fields_filled: string[];
-}> {
-  const res = await fetch(
-    `${API_BASE}/applications/${applicationId}/apply`,
-    { method: "POST" }
-  );
-  return handleResponse<{ status: string; fields_filled: string[] }>(res);
-}
 
 export async function fetchApplications(): Promise<Application[]> {
   const res = await fetch(`${API_BASE}/applications`, { cache: "no-store" });
@@ -259,10 +253,18 @@ export async function fetchApplications(): Promise<Application[]> {
 }
 
 export async function fetchApplication(id: number): Promise<Application> {
-  const res = await fetch(`${API_BASE}/applications/${id}`, {
-    cache: "no-store",
-  });
+  const res = await fetch(`${API_BASE}/applications/${id}`, { cache: "no-store" });
   return handleResponse<Application>(res);
+}
+
+export async function applyToJob(applicationId: number): Promise<{
+  status: string;
+  fields_filled: string[];
+}> {
+  const res = await fetch(`${API_BASE}/applications/${applicationId}/apply`, {
+    method: "POST",
+  });
+  return handleResponse<{ status: string; fields_filled: string[] }>(res);
 }
 
 export async function updateApplicationStatus(
@@ -270,58 +272,11 @@ export async function updateApplicationStatus(
   status: ApplicationStatus
 ): Promise<Application> {
   const res = await fetch(`${API_BASE}/applications/${id}/status`, {
-    method: "PATCH",
+    method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
   });
   return handleResponse<Application>(res);
-}
-
-// ─── Stats Endpoint ────────────────────────────────────────────────────────────
-
-export async function fetchStats(): Promise<Stats> {
-  const res = await fetch(`${API_BASE}/stats`, { cache: "no-store" });
-  return handleResponse<Stats>(res);
-}
-
-// ─── Utility ───────────────────────────────────────────────────────────────────
-
-export function getScoreColor(score: number): string {
-  if (score >= 80) return "text-green-400";
-  if (score >= 60) return "text-yellow-400";
-  return "text-red-400";
-}
-
-export function getScoreBg(score: number): string {
-  if (score >= 80) return "bg-green-400/10 border-green-400/30 text-green-400";
-  if (score >= 60)
-    return "bg-yellow-400/10 border-yellow-400/30 text-yellow-400";
-  return "bg-red-400/10 border-red-400/30 text-red-400";
-}
-
-export function getJobTypeBadgeClass(type: JobType): string {
-  const map: Record<JobType, string> = {
-    SWE: "badge-swe",
-    DE: "badge-de",
-    DA: "badge-da",
-    DS: "badge-ds",
-    MLE: "badge-mle",
-    AIE: "badge-aie",
-  };
-  return `badge ${map[type] || ""}`;
-}
-
-export function formatDate(dateStr: string): string {
-  if (!dateStr) return "Unknown date";
-  try {
-    return new Date(dateStr).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return dateStr;
-  }
 }
 
 // ─── Site Monitor Types ────────────────────────────────────────────────────────
@@ -365,7 +320,7 @@ export interface SiteMonitorStats {
 // ─── Site Monitor Endpoints ────────────────────────────────────────────────────
 
 export async function fetchTrackedSites(): Promise<TrackedSite[]> {
-  const res = await fetch(`${API_BASE}/sites`, { cache: "no-store" });
+  const res = await fetch(`${API_BASE}/history/`, { cache: "no-store" });
   return handleResponse<TrackedSite[]>(res);
 }
 
@@ -376,7 +331,7 @@ export async function addTrackedSite(data: {
   notes?: string;
   interval_hours: number;
 }): Promise<TrackedSite> {
-  const res = await fetch(`${API_BASE}/sites`, {
+  const res = await fetch(`${API_BASE}/history/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -386,15 +341,10 @@ export async function addTrackedSite(data: {
 
 export async function updateTrackedSite(
   id: number,
-  data: Partial<{
-    name: string;
-    notes: string;
-    interval_hours: number;
-    is_active: boolean;
-  }>
+  data: Partial<{ name: string; notes: string; interval_hours: number; is_active: boolean }>
 ): Promise<TrackedSite> {
-  const res = await fetch(`${API_BASE}/sites/${id}`, {
-    method: "PATCH",
+  const res = await fetch(`${API_BASE}/history/${id}`, {
+    method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
@@ -402,65 +352,78 @@ export async function updateTrackedSite(
 }
 
 export async function deleteTrackedSite(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/sites/${id}`, { method: "DELETE" });
+  const res = await fetch(`${API_BASE}/history/${id}`, { method: "DELETE" });
   return handleResponse<void>(res);
 }
 
 export async function checkSiteNow(id: number): Promise<{ status: string }> {
-  const res = await fetch(`${API_BASE}/sites/${id}/check`, { method: "POST" });
+  const res = await fetch(`${API_BASE}/history/${id}/check-now`, { method: "POST" });
   return handleResponse<{ status: string }>(res);
 }
 
-export async function fetchSiteLogs(
-  id: number,
-  page = 1
-): Promise<SiteCheckLog[]> {
-  const res = await fetch(`${API_BASE}/sites/${id}/logs?page=${page}`, {
+export async function fetchSiteLogs(id: number, page = 1): Promise<SiteCheckLog[]> {
+  const res = await fetch(`${API_BASE}/history/${id}/logs?page=${page}`, {
     cache: "no-store",
   });
   return handleResponse<SiteCheckLog[]>(res);
 }
 
 export async function fetchSiteMonitorStats(): Promise<SiteMonitorStats> {
-  const res = await fetch(`${API_BASE}/sites/stats`, { cache: "no-store" });
+  const res = await fetch(`${API_BASE}/history/stats`, { cache: "no-store" });
   return handleResponse<SiteMonitorStats>(res);
 }
 
-// ─── Time Helpers ──────────────────────────────────────────────────────────────
+// ─── Utility ───────────────────────────────────────────────────────────────────
+
+export function getScoreColor(score: number): string {
+  if (score >= 80) return "text-green-400";
+  if (score >= 60) return "text-yellow-400";
+  return "text-red-400";
+}
+
+export function getScoreBg(score: number): string {
+  if (score >= 80) return "bg-green-400/10 border-green-400/30 text-green-400";
+  if (score >= 60) return "bg-yellow-400/10 border-yellow-400/30 text-yellow-400";
+  return "bg-red-400/10 border-red-400/30 text-red-400";
+}
+
+export function getJobTypeBadgeClass(type: JobType): string {
+  const map: Record<JobType, string> = {
+    SWE: "badge-swe", DE: "badge-de", DA: "badge-da",
+    DS: "badge-ds", MLE: "badge-mle", AIE: "badge-aie",
+  };
+  return `badge ${map[type] || ""}`;
+}
+
+export function formatDate(dateStr: string): string {
+  if (!dateStr) return "—";
+  try {
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      month: "short", day: "numeric", year: "numeric",
+    });
+  } catch {
+    return dateStr;
+  }
+}
 
 export function timeUntil(isoString: string): string {
-  const now = Date.now();
-  const target = new Date(isoString).getTime();
-  const diffMs = target - now;
-  const diffMins = Math.round(diffMs / 60000);
+  const diffMins = Math.round((new Date(isoString).getTime() - Date.now()) / 60000);
   const absMins = Math.abs(diffMins);
-
   if (absMins < 2) return "Due now";
-
   const days = Math.floor(absMins / 1440);
   const hours = Math.floor((absMins % 1440) / 60);
   const mins = absMins % 60;
-
-  let label = "";
-  if (days > 0) label = `${days}d${hours > 0 ? ` ${hours}h` : ""}`;
-  else if (hours > 0) label = `${hours}h${mins > 0 ? ` ${mins}m` : ""}`;
-  else label = `${mins}m`;
-
+  const label = days > 0 ? `${days}d${hours > 0 ? ` ${hours}h` : ""}` :
+    hours > 0 ? `${hours}h${mins > 0 ? ` ${mins}m` : ""}` : `${mins}m`;
   return diffMins > 0 ? `in ${label}` : `Overdue by ${label}`;
 }
 
 export function timeAgo(isoString: string): string {
-  const now = Date.now();
-  const past = new Date(isoString).getTime();
-  const diffMs = now - past;
-  const diffMins = Math.floor(diffMs / 60000);
-
+  const diffMins = Math.floor((Date.now() - new Date(isoString).getTime()) / 60000);
   if (diffMins < 1) return "just now";
   if (diffMins < 60) return `${diffMins}m ago`;
   const hours = Math.floor(diffMins / 60);
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  const weeks = Math.floor(days / 7);
-  return `${weeks}w ago`;
+  return days < 7 ? `${days}d ago` : `${Math.floor(days / 7)}w ago`;
 }
