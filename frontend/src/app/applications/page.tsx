@@ -41,7 +41,7 @@ import {
 interface ColumnDef {
   id: ApplicationStatus;
   label: string;
-  icon: React.FC<{ size?: number; className?: string }>;
+  icon: React.ElementType;
   color: string;
   borderColor: string;
 }

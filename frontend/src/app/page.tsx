@@ -49,7 +49,7 @@ const JOB_TYPE_COLORS: Record<string, string> = {
 
 const STATUS_CONFIG: Record<
   string,
-  { label: string; icon: React.FC<{ size?: number; className?: string }>; color: string }
+  { label: string; icon: React.ElementType; color: string }
 > = {
   to_apply: {
     label: "To Apply",
