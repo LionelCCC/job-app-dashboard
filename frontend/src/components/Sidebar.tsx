@@ -10,6 +10,7 @@ import {
   Rocket,
   User,
   ChevronRight,
+  History,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -33,6 +34,11 @@ const NAV_ITEMS = [
     label: "Applications",
     href: "/applications",
     icon: ClipboardList,
+  },
+  {
+    label: "History",
+    href: "/history",
+    icon: History,
   },
 ];
 

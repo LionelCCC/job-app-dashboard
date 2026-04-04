@@ -5,6 +5,7 @@ Start the server with:
     uvicorn main:app --reload --port 8000
 """
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -13,8 +14,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from database import create_all_tables
+import models_history
+from database import create_all_tables, engine
 from routers import applications, jobs, resumes, scoring
+from routers.history import router as history_router
+from services.site_monitor import run_scheduler_loop
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -91,10 +95,15 @@ app.mount(
 
 @app.on_event("startup")
 async def on_startup():
-    """Create database tables on application startup."""
+    """Create database tables on application startup and launch the scheduler."""
     logger.info("Creating database tables if they do not exist…")
     create_all_tables()
+    # Create history tables (TrackedSite, SiteCheckLog) using their own metadata
+    models_history.Base.metadata.create_all(bind=engine)
     logger.info("Database ready at /Users/lionelc/Job app dashboard/jobs.db")
+    # Start the background site-monitoring scheduler
+    asyncio.create_task(run_scheduler_loop())
+    logger.info("Site-monitor scheduler task started.")
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +114,7 @@ app.include_router(jobs.router, prefix="/api")
 app.include_router(resumes.router, prefix="/api")
 app.include_router(scoring.router, prefix="/api")
 app.include_router(applications.router, prefix="/api")
+app.include_router(history_router, prefix="/api/history", tags=["history"])
 
 # ---------------------------------------------------------------------------
 # Health check

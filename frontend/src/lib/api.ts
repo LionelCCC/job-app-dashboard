@@ -323,3 +323,144 @@ export function formatDate(dateStr: string): string {
     return dateStr;
   }
 }
+
+// ─── Site Monitor Types ────────────────────────────────────────────────────────
+
+export interface TrackedSite {
+  id: number;
+  name: string;
+  url: string;
+  company: string;
+  notes?: string;
+  interval_hours: number;
+  interval_label: string;
+  is_active: boolean;
+  last_checked_at?: string;
+  next_check_at?: string;
+  jobs_found_total: number;
+  new_jobs_last_check: number;
+  recent_logs: SiteCheckLog[];
+}
+
+export interface SiteCheckLog {
+  id: number;
+  site_id: number;
+  checked_at: string;
+  jobs_found: number;
+  new_jobs: number;
+  status: "success" | "error" | "no_change";
+  error_message?: string;
+  job_titles_found?: string[];
+}
+
+export interface SiteMonitorStats {
+  total_sites: number;
+  active_sites: number;
+  total_checks_run: number;
+  total_jobs_found: number;
+  sites_due_now: number;
+  next_scheduled?: string;
+}
+
+// ─── Site Monitor Endpoints ────────────────────────────────────────────────────
+
+export async function fetchTrackedSites(): Promise<TrackedSite[]> {
+  const res = await fetch(`${API_BASE}/sites`, { cache: "no-store" });
+  return handleResponse<TrackedSite[]>(res);
+}
+
+export async function addTrackedSite(data: {
+  url: string;
+  name: string;
+  company: string;
+  notes?: string;
+  interval_hours: number;
+}): Promise<TrackedSite> {
+  const res = await fetch(`${API_BASE}/sites`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<TrackedSite>(res);
+}
+
+export async function updateTrackedSite(
+  id: number,
+  data: Partial<{
+    name: string;
+    notes: string;
+    interval_hours: number;
+    is_active: boolean;
+  }>
+): Promise<TrackedSite> {
+  const res = await fetch(`${API_BASE}/sites/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<TrackedSite>(res);
+}
+
+export async function deleteTrackedSite(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/sites/${id}`, { method: "DELETE" });
+  return handleResponse<void>(res);
+}
+
+export async function checkSiteNow(id: number): Promise<{ status: string }> {
+  const res = await fetch(`${API_BASE}/sites/${id}/check`, { method: "POST" });
+  return handleResponse<{ status: string }>(res);
+}
+
+export async function fetchSiteLogs(
+  id: number,
+  page = 1
+): Promise<SiteCheckLog[]> {
+  const res = await fetch(`${API_BASE}/sites/${id}/logs?page=${page}`, {
+    cache: "no-store",
+  });
+  return handleResponse<SiteCheckLog[]>(res);
+}
+
+export async function fetchSiteMonitorStats(): Promise<SiteMonitorStats> {
+  const res = await fetch(`${API_BASE}/sites/stats`, { cache: "no-store" });
+  return handleResponse<SiteMonitorStats>(res);
+}
+
+// ─── Time Helpers ──────────────────────────────────────────────────────────────
+
+export function timeUntil(isoString: string): string {
+  const now = Date.now();
+  const target = new Date(isoString).getTime();
+  const diffMs = target - now;
+  const diffMins = Math.round(diffMs / 60000);
+  const absMins = Math.abs(diffMins);
+
+  if (absMins < 2) return "Due now";
+
+  const days = Math.floor(absMins / 1440);
+  const hours = Math.floor((absMins % 1440) / 60);
+  const mins = absMins % 60;
+
+  let label = "";
+  if (days > 0) label = `${days}d${hours > 0 ? ` ${hours}h` : ""}`;
+  else if (hours > 0) label = `${hours}h${mins > 0 ? ` ${mins}m` : ""}`;
+  else label = `${mins}m`;
+
+  return diffMins > 0 ? `in ${label}` : `Overdue by ${label}`;
+}
+
+export function timeAgo(isoString: string): string {
+  const now = Date.now();
+  const past = new Date(isoString).getTime();
+  const diffMs = now - past;
+  const diffMins = Math.floor(diffMs / 60000);
+
+  if (diffMins < 1) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const hours = Math.floor(diffMins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  return `${weeks}w ago`;
+}
