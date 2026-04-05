@@ -52,6 +52,14 @@ class Job(Base):
     status = Column(SAEnum(JobStatus), nullable=False, default=JobStatus.new)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
+    # New fields (Session 4)
+    seniority_level = Column(String(64), nullable=True)          # "new_grad", "junior", "mid", "senior", "staff", "principal"
+    years_min_experience = Column(Integer, nullable=True)        # e.g. 0, 1, 2, 3, 5, 7
+    external_apply_url = Column(Text, nullable=True)             # resolved employer application URL
+    apply_link_status = Column(String(32), nullable=True)        # "resolved", "listing_only", "unresolved"
+    extracted_skills = Column(JSON, nullable=True)               # list[str] parsed from JD
+    source_name = Column(String(128), nullable=True)             # "linkedin", "indeed", "greenhouse", etc.
+
     applications = relationship("Application", back_populates="job", cascade="all, delete-orphan")
 
     def __repr__(self):

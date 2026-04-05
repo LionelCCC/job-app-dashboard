@@ -3,22 +3,38 @@
 @tailwind utilities;
 
 :root {
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-card: #1e293b;
-  --bg-card-hover: #263348;
-  --border: #334155;
-  --border-light: #475569;
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --accent: #6366f1;
-  --accent-hover: #4f46e5;
-  --accent-light: #818cf8;
-  --success: #22c55e;
-  --warning: #eab308;
-  --danger: #ef4444;
-  --info: #3b82f6;
+  /* ── New Brand Palette ────────────────────────────────── */
+  --praxeti:       #F6F7ED;   /* near-white text */
+  --spring:        #DBE64C;   /* lime-yellow CTA */
+  --spring-hover:  #C8D440;
+  --spring-light:  #EBF07A;
+  --midnight:      #001F3F;   /* primary background */
+  --midnight-card: #002850;   /* card background */
+  --midnight-hover:#003570;
+  --midnight-deep: #00162D;   /* sidebar/deeper */
+  --mantis:        #74C365;   /* success green */
+  --bookgreen:     #00804D;
+  --nuit:          #1E488F;   /* blue accent */
+  --nuit-light:    #2A5AAB;
+
+  /* ── Semantic aliases (backward compat) ──────────────── */
+  --bg-primary:    var(--midnight);
+  --bg-secondary:  var(--midnight-card);
+  --bg-card:       var(--midnight-card);
+  --bg-card-hover: var(--midnight-hover);
+  --border:        rgba(30, 72, 143, 0.28);
+  --border-light:  rgba(30, 72, 143, 0.50);
+  --text-primary:  var(--praxeti);
+  --text-secondary:#9BB5D0;
+  --text-muted:    #5A7A9A;
+  --accent:        var(--spring);
+  --accent-hover:  var(--spring-hover);
+  --accent-light:  var(--spring-light);
+  --success:       var(--mantis);
+  --success-dark:  var(--bookgreen);
+  --warning:       #F59E0B;
+  --danger:        #EF4444;
+  --info:          var(--nuit);
 }
 
 * {
@@ -31,29 +47,16 @@ html,
 body {
   max-width: 100vw;
   overflow-x: hidden;
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
+  background-color: var(--midnight);
+  color: var(--praxeti);
   font-family: "Inter", system-ui, -apple-system, sans-serif;
 }
 
 /* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--border-light);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
+::-webkit-scrollbar         { width: 6px; height: 6px; }
+::-webkit-scrollbar-track   { background: var(--midnight-deep); }
+::-webkit-scrollbar-thumb   { background: var(--nuit); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--nuit-light); }
 
 /* Smooth transitions */
 a,
@@ -103,11 +106,22 @@ button {
 
 /* Gradient text */
 .gradient-text {
-  background: linear-gradient(135deg, #6366f1, #818cf8);
+  background: linear-gradient(135deg, var(--spring), var(--mantis));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
+
+/* Spring CTA button */
+.btn-spring {
+  background-color: var(--spring);
+  color: var(--midnight);
+  font-weight: 600;
+  border-radius: 0.5rem;
+  padding: 0.5rem 1.25rem;
+}
+.btn-spring:hover  { background-color: var(--spring-hover); }
+.btn-spring:active { transform: scale(0.98); }
 
 /* Shimmer loading animation */
 @keyframes shimmer {
@@ -187,33 +201,23 @@ button {
 }
 
 /* Job type badge colors */
-.badge-swe {
-  background-color: rgba(99, 102, 241, 0.2);
-  color: #818cf8;
-  border: 1px solid rgba(99, 102, 241, 0.3);
+.badge-swe { background-color: rgba(219,230, 76,0.15); color: #DBE64C; border: 1px solid rgba(219,230, 76,0.30); }
+.badge-de  { background-color: rgba( 30, 72,143,0.20); color: #6B9FE4; border: 1px solid rgba( 30, 72,143,0.40); }
+.badge-da  { background-color: rgba(116,195,101,0.15); color: #74C365; border: 1px solid rgba(116,195,101,0.30); }
+.badge-ds  { background-color: rgba(245,158, 11,0.15); color: #FBBF24; border: 1px solid rgba(245,158, 11,0.30); }
+.badge-mle { background-color: rgba(236, 72,153,0.15); color: #F472B6; border: 1px solid rgba(236, 72,153,0.30); }
+.badge-aie { background-color: rgba(  0,128, 77,0.20); color: #00C76A; border: 1px solid rgba(  0,128, 77,0.40); }
+
+/* Stage card states */
+.stage-card {
+  background: var(--midnight-card);
+  border: 1px solid var(--border);
+  border-radius: 0.875rem;
+  padding: 1.25rem 1rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
 }
-.badge-de {
-  background-color: rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
-  border: 1px solid rgba(59, 130, 246, 0.3);
-}
-.badge-da {
-  background-color: rgba(16, 185, 129, 0.2);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-.badge-ds {
-  background-color: rgba(245, 158, 11, 0.2);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.3);
-}
-.badge-mle {
-  background-color: rgba(236, 72, 153, 0.2);
-  color: #f472b6;
-  border: 1px solid rgba(236, 72, 153, 0.3);
-}
-.badge-aie {
-  background-color: rgba(168, 85, 247, 0.2);
-  color: #c084fc;
-  border: 1px solid rgba(168, 85, 247, 0.3);
-}
+.stage-card:hover   { border-color: var(--border-light); background: var(--midnight-hover); }
+.stage-card.active  { border-color: var(--spring); background: rgba(219,230,76,0.06); }
+.stage-card.complete{ border-color: var(--mantis); background: rgba(116,195,101,0.06); }
+.stage-card.blocked { opacity: 0.4; cursor: not-allowed; pointer-events: none; }

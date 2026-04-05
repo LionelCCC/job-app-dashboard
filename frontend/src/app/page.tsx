@@ -3,141 +3,136 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import {
-  Briefcase,
-  FileText,
-  Send,
-  TrendingUp,
   ArrowRight,
-  Search,
-  Upload,
   RefreshCw,
-  CheckCircle,
-  Clock,
   AlertCircle,
-  XCircle,
+  FileText,
+  Briefcase,
+  Target,
+  Send,
+  Upload,
+  Search,
+  BarChart2,
 } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
 import clsx from "clsx";
-import StatsCard from "@/components/StatsCard";
-import {
-  fetchStats,
-  Stats,
-  Application,
-  JobType,
-  getScoreBg,
-  formatDate,
-} from "@/lib/api";
+import WorkflowStages, { PipelineStage } from "@/components/WorkflowStages";
+import { fetchStats, fetchResumes, Stats, Resume, formatDate, getScoreBg } from "@/lib/api";
 
-const JOB_TYPE_COLORS: Record<string, string> = {
-  SWE: "#6366f1",
-  DE: "#3b82f6",
-  DA: "#10b981",
-  DS: "#f59e0b",
-  MLE: "#ec4899",
-  AIE: "#a855f7",
-};
-
-const STATUS_CONFIG: Record<
-  string,
-  { label: string; icon: React.ElementType; color: string }
-> = {
-  to_apply: {
-    label: "To Apply",
-    icon: Clock,
-    color: "text-blue-400",
-  },
-  reviewing: {
-    label: "Reviewing",
-    icon: Search,
-    color: "text-yellow-400",
-  },
-  applying: {
-    label: "Applying",
-    icon: Send,
-    color: "text-indigo-400",
-  },
-  submitted: {
-    label: "Submitted",
-    icon: CheckCircle,
-    color: "text-green-400",
-  },
-  failed: {
-    label: "Failed",
-    icon: XCircle,
-    color: "text-red-400",
-  },
-};
-
-function LoadingSkeleton() {
-  return (
-    <div className="space-y-6 animate-pulse">
-      <div className="grid grid-cols-4 gap-4">
-        {[...Array(4)].map((_, i) => (
-          <div key={i} className="h-28 bg-slate-800 rounded-xl shimmer" />
-        ))}
-      </div>
-      <div className="grid grid-cols-3 gap-6">
-        <div className="col-span-2 h-64 bg-slate-800 rounded-xl shimmer" />
-        <div className="h-64 bg-slate-800 rounded-xl shimmer" />
-      </div>
-    </div>
-  );
+// ─── Determine current recommended stage ─────────────────────────────────────
+function detectStage(stats: Stats | null, resumeCount: number): PipelineStage {
+  if (!stats) return "resume";
+  if (resumeCount === 0) return "resume";
+  if (stats.total_jobs === 0) return "discovery";
+  if (stats.pipeline.scored === 0) return "scoring";
+  return "application";
 }
 
-function PipelineStep({
+// ─── Next action CTA config ───────────────────────────────────────────────────
+interface CTAConfig {
+  headline: string;
+  description: string;
+  buttonLabel: string;
+  buttonHref: string;
+  color: "spring" | "nuit" | "mantis";
+}
+
+function buildCTA(stage: PipelineStage, stats: Stats | null, resumeCount: number): CTAConfig {
+  switch (stage) {
+    case "resume":
+      return {
+        headline: "Start by uploading your resume",
+        description:
+          "JobPilot can't score or apply without a resume. Upload a PDF, DOCX, or LaTeX file and we'll parse it automatically.",
+        buttonLabel: "Upload Resume",
+        buttonHref: "/resumes",
+        color: "spring",
+      };
+    case "discovery":
+      return {
+        headline: "Discover relevant jobs",
+        description: `You have ${resumeCount} resume${resumeCount > 1 ? "s" : ""} ready. Search LinkedIn, Indeed, or paste a direct URL. Shortlist the roles worth scoring.`,
+        buttonLabel: "Go to Discovery",
+        buttonHref: "/jobs",
+        color: "spring",
+      };
+    case "scoring":
+      return {
+        headline: "Score your shortlisted jobs",
+        description: `You have ${stats?.total_jobs ?? 0} jobs discovered. Run Claude AI ATS analysis to see how well your resume matches each role.`,
+        buttonLabel: "Run Scoring",
+        buttonHref: "/scoring",
+        color: "nuit",
+      };
+    case "application":
+      return {
+        headline: "Apply to scored positions",
+        description: `${stats?.pipeline.scored ?? 0} job${(stats?.pipeline.scored ?? 0) !== 1 ? "s" : ""} scored. Review results and submit applications to the best matches.`,
+        buttonLabel: "Review Applications",
+        buttonHref: "/applications",
+        color: "mantis",
+      };
+  }
+}
+
+// ─── Stat mini-card ───────────────────────────────────────────────────────────
+function MiniStat({
   label,
-  count,
-  active,
+  value,
+  icon: Icon,
+  color = "nuit",
 }: {
   label: string;
-  count: number;
-  active?: boolean;
+  value: number | string;
+  icon: React.ElementType;
+  color?: "spring" | "nuit" | "mantis" | "warning";
 }) {
+  const iconColors = { spring: "var(--spring)", nuit: "var(--nuit-light)", mantis: "var(--mantis)", warning: "#FBBF24" };
+  const bgColors   = { spring: "rgba(219,230,76,0.10)", nuit: "rgba(30,72,143,0.22)", mantis: "rgba(116,195,101,0.10)", warning: "rgba(245,158,11,0.10)" };
   return (
     <div
-      className={clsx(
-        "flex-1 text-center px-4 py-4 rounded-xl border transition-all",
-        active
-          ? "bg-indigo-600/15 border-indigo-500/40"
-          : "bg-slate-800/60 border-slate-700/50"
-      )}
+      className="flex items-center gap-3 p-4 rounded-xl"
+      style={{ backgroundColor: "var(--midnight-card)", border: "1px solid var(--border)" }}
     >
-      <p
-        className={clsx(
-          "text-2xl font-bold tabular-nums",
-          active ? "text-indigo-400" : "text-slate-300"
-        )}
-      >
-        {count}
-      </p>
-      <p className="text-xs text-slate-500 mt-1 font-medium">{label}</p>
+      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: bgColors[color] }}>
+        <Icon size={18} style={{ color: iconColors[color] }} />
+      </div>
+      <div>
+        <p className="text-xl font-bold tabular-nums" style={{ color: "var(--praxeti)" }}>{value}</p>
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>{label}</p>
+      </div>
     </div>
   );
 }
 
-export default function DashboardPage() {
-  const [stats, setStats] = useState<Stats | null>(null);
+// ─── Loading skeleton ─────────────────────────────────────────────────────────
+function Skeleton() {
+  return (
+    <div className="p-8 space-y-6 animate-pulse max-w-5xl">
+      <div className="h-8 w-64 rounded-lg shimmer" />
+      <div className="h-44 rounded-2xl shimmer" />
+      <div className="grid grid-cols-4 gap-4">
+        {[...Array(4)].map((_, i) => <div key={i} className="h-20 rounded-xl shimmer" />)}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+export default function HomePage() {
+  const [stats, setStats]     = useState<Stats | null>(null);
+  const [resumes, setResumes] = useState<Resume[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError]     = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadStats = useCallback(async (isRefresh = false) => {
+  const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     setError(null);
     try {
-      const data = await fetchStats();
-      setStats(data);
+      const [s, r] = await Promise.all([fetchStats(), fetchResumes()]);
+      setStats(s);
+      setResumes(r);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard");
     } finally {
@@ -146,46 +141,31 @@ export default function DashboardPage() {
     }
   }, []);
 
-  useEffect(() => {
-    loadStats();
-  }, [loadStats]);
+  useEffect(() => { load(); }, [load]);
 
-  // Build recharts data
-  const atsDistData = stats?.ats_distribution
-    ? Object.entries(stats.ats_distribution).map(([range, count]) => ({
-        range,
-        count,
-      }))
-    : [];
+  const resumeCount  = resumes.length;
+  const currentStage = detectStage(stats, resumeCount);
+  const cta          = buildCTA(currentStage, stats, resumeCount);
+  const avgScore     = stats?.avg_ats_score ?? 0;
 
-  const jobTypeData = stats?.job_type_breakdown
-    ? Object.entries(stats.job_type_breakdown)
-        .filter(([, v]) => v > 0)
-        .map(([type, count]) => ({
-          name: type as JobType,
-          value: count,
-          color: JOB_TYPE_COLORS[type] || "#6366f1",
-        }))
-    : [];
+  const ctaBtnStyle: React.CSSProperties =
+    cta.color === "spring"
+      ? { backgroundColor: "var(--spring)", color: "var(--midnight)" }
+      : cta.color === "mantis"
+      ? { backgroundColor: "var(--mantis)", color: "var(--midnight)" }
+      : { backgroundColor: "var(--nuit)", color: "var(--praxeti)" };
 
-  const avgScore = stats?.avg_ats_score ?? 0;
-
-  if (loading) return <div className="p-8"><LoadingSkeleton /></div>;
+  if (loading) return <Skeleton />;
 
   if (error) {
     return (
       <div className="p-8">
-        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 flex items-start gap-4">
-          <AlertCircle className="text-red-400 flex-shrink-0 mt-0.5" size={20} />
+        <div className="rounded-xl p-6 flex items-start gap-4" style={{ backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.28)" }}>
+          <AlertCircle size={20} className="flex-shrink-0 mt-0.5" style={{ color: "#EF4444" }} />
           <div>
-            <p className="font-semibold text-red-400">Failed to load dashboard</p>
-            <p className="text-sm text-red-400/70 mt-1">{error}</p>
-            <button
-              onClick={() => loadStats()}
-              className="mt-3 px-4 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-sm hover:bg-red-500/30 transition-colors"
-            >
-              Retry
-            </button>
+            <p className="font-semibold" style={{ color: "#EF4444" }}>Failed to load dashboard</p>
+            <p className="text-sm mt-1" style={{ color: "rgba(239,68,68,0.70)" }}>{error}</p>
+            <button onClick={() => load()} className="mt-3 px-4 py-1.5 rounded-lg text-sm" style={{ backgroundColor: "rgba(239,68,68,0.18)", color: "#EF4444" }}>Retry</button>
           </div>
         </div>
       </div>
@@ -193,340 +173,183 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="p-8 space-y-8 max-w-7xl">
-      {/* Page header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-100">Dashboard</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Your job application pipeline at a glance
-          </p>
-        </div>
-        <button
-          onClick={() => loadStats(true)}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-700 text-sm transition-colors disabled:opacity-50"
-        >
-          <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
-          Refresh
-        </button>
-      </div>
+    <div className="flex flex-col min-h-full">
+      {/* Pipeline stage bar */}
+      <WorkflowStages
+        resumeCount={resumeCount}
+        jobCount={stats?.total_jobs ?? 0}
+        scoredCount={stats?.pipeline?.scored ?? 0}
+        appliedCount={stats?.pipeline?.applied ?? 0}
+        activeStage={currentStage}
+      />
 
-      {/* Stats cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatsCard
-          title="Jobs Found"
-          value={stats?.total_jobs ?? 0}
-          icon={Briefcase}
-          accent="indigo"
-          subtitle="Total discovered"
-        />
-        <StatsCard
-          title="Resumes"
-          value={stats?.total_resumes ?? 0}
-          icon={FileText}
-          accent="blue"
-          subtitle="Uploaded & parsed"
-        />
-        <StatsCard
-          title="Applications Sent"
-          value={stats?.total_applications ?? 0}
-          icon={Send}
-          accent="green"
-          subtitle="Across all pipelines"
-        />
-        <StatsCard
-          title="Avg ATS Score"
-          value={`${Math.round(avgScore)}%`}
-          icon={TrendingUp}
-          accent={avgScore >= 80 ? "green" : avgScore >= 60 ? "yellow" : "indigo"}
-          subtitle="Overall average"
-        />
-      </div>
-
-      {/* Pipeline visualization */}
-      <div className="bg-slate-800 border border-slate-700/60 rounded-xl p-6">
-        <h2 className="text-sm font-semibold text-slate-300 mb-5">
-          Application Pipeline
-        </h2>
-        <div className="flex items-center gap-2">
-          <PipelineStep
-            label="Found"
-            count={stats?.pipeline?.found ?? 0}
-          />
-          <ArrowRight size={16} className="text-slate-600 flex-shrink-0" />
-          <PipelineStep
-            label="Scored"
-            count={stats?.pipeline?.scored ?? 0}
-          />
-          <ArrowRight size={16} className="text-slate-600 flex-shrink-0" />
-          <PipelineStep
-            label="Approved"
-            count={stats?.pipeline?.approved ?? 0}
-            active
-          />
-          <ArrowRight size={16} className="text-slate-600 flex-shrink-0" />
-          <PipelineStep
-            label="Applied"
-            count={stats?.pipeline?.applied ?? 0}
-          />
-        </div>
-      </div>
-
-      {/* Charts row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* ATS score distribution */}
-        <div className="lg:col-span-2 bg-slate-800 border border-slate-700/60 rounded-xl p-6">
-          <h2 className="text-sm font-semibold text-slate-300 mb-5">
-            ATS Score Distribution
-          </h2>
-          {atsDistData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart
-                data={atsDistData}
-                margin={{ top: 0, right: 0, bottom: 0, left: -20 }}
-              >
-                <XAxis
-                  dataKey="range"
-                  tick={{ fill: "#64748b", fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fill: "#64748b", fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: "#1e293b",
-                    border: "1px solid #334155",
-                    borderRadius: "8px",
-                    color: "#f1f5f9",
-                    fontSize: 12,
-                  }}
-                  cursor={{ fill: "rgba(99,102,241,0.1)" }}
-                />
-                <Bar
-                  dataKey="count"
-                  fill="#6366f1"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={60}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-48 flex items-center justify-center text-slate-600 text-sm">
-              No score data yet
-            </div>
-          )}
-        </div>
-
-        {/* Job type breakdown */}
-        <div className="bg-slate-800 border border-slate-700/60 rounded-xl p-6">
-          <h2 className="text-sm font-semibold text-slate-300 mb-5">
-            Job Type Breakdown
-          </h2>
-          {jobTypeData.length > 0 ? (
-            <div className="flex flex-col items-center gap-4">
-              <ResponsiveContainer width="100%" height={140}>
-                <PieChart>
-                  <Pie
-                    data={jobTypeData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={40}
-                    outerRadius={65}
-                    paddingAngle={3}
-                    dataKey="value"
-                  >
-                    {jobTypeData.map((entry, index) => (
-                      <Cell key={index} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: "#1e293b",
-                      border: "1px solid #334155",
-                      borderRadius: "8px",
-                      color: "#f1f5f9",
-                      fontSize: 12,
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="grid grid-cols-2 gap-1.5 w-full">
-                {jobTypeData.map((d) => (
-                  <div key={d.name} className="flex items-center gap-1.5 text-xs">
-                    <span
-                      className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
-                      style={{ backgroundColor: d.color }}
-                    />
-                    <span className="text-slate-400 truncate">
-                      {d.name}
-                    </span>
-                    <span className="text-slate-500 ml-auto">{d.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="h-48 flex items-center justify-center text-slate-600 text-sm">
-              No data yet
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Bottom row: Recent activity + Quick actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Recent Activity */}
-        <div className="lg:col-span-2 bg-slate-800 border border-slate-700/60 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-sm font-semibold text-slate-300">
-              Recent Applications
-            </h2>
-            <Link
-              href="/applications"
-              className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors"
-            >
-              View all <ArrowRight size={12} />
-            </Link>
+      <div className="flex-1 p-8 space-y-7 max-w-5xl">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold" style={{ color: "var(--praxeti)" }}>Welcome back, Lionel</h1>
+            <p className="text-sm mt-0.5" style={{ color: "var(--text-muted)" }}>Here&apos;s where your job search stands today.</p>
           </div>
-          {stats?.recent_applications?.length ? (
-            <div className="space-y-3">
-              {stats.recent_applications.slice(0, 8).map((app: Application) => {
-                const statusCfg =
-                  STATUS_CONFIG[app.status] || STATUS_CONFIG.to_apply;
-                const Icon = statusCfg.icon;
-                const score =
-                  app.ats_score ?? app.ats_result?.overall_score;
+          <button
+            onClick={() => load(true)}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm disabled:opacity-50"
+            style={{ backgroundColor: "var(--midnight-card)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+          >
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+            Refresh
+          </button>
+        </div>
+
+        {/* ── Dominant CTA card ── */}
+        <div
+          className="relative overflow-hidden rounded-2xl p-7"
+          style={{
+            background: cta.color === "spring"
+              ? "linear-gradient(135deg, rgba(219,230,76,0.11) 0%, rgba(0,40,80,0.55) 60%)"
+              : cta.color === "mantis"
+              ? "linear-gradient(135deg, rgba(116,195,101,0.11) 0%, rgba(0,40,80,0.55) 60%)"
+              : "linear-gradient(135deg, rgba(30,72,143,0.22) 0%, rgba(0,40,80,0.55) 60%)",
+            border: `1px solid ${cta.color === "spring" ? "rgba(219,230,76,0.28)" : cta.color === "mantis" ? "rgba(116,195,101,0.28)" : "rgba(30,72,143,0.45)"}`,
+          }}
+        >
+          {/* Glow */}
+          <div
+            className="absolute top-0 right-0 w-48 h-48 rounded-full opacity-[0.08] blur-3xl pointer-events-none"
+            style={{ backgroundColor: cta.color === "spring" ? "var(--spring)" : cta.color === "mantis" ? "var(--mantis)" : "var(--nuit)", transform: "translate(30%,-30%)" }}
+          />
+          <div className="relative flex items-start justify-between gap-6">
+            <div className="flex-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>Next step</p>
+              <h2 className="text-xl font-bold mb-2" style={{ color: "var(--praxeti)" }}>{cta.headline}</h2>
+              <p className="text-sm leading-relaxed mb-5 max-w-lg" style={{ color: "var(--text-secondary)" }}>{cta.description}</p>
+              <Link
+                href={cta.buttonHref}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-90 active:scale-[0.98]"
+                style={ctaBtnStyle}
+              >
+                {cta.buttonLabel} <ArrowRight size={15} />
+              </Link>
+            </div>
+            <div
+              className="hidden sm:flex w-16 h-16 rounded-2xl items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: cta.color === "spring" ? "rgba(219,230,76,0.10)" : cta.color === "mantis" ? "rgba(116,195,101,0.10)" : "rgba(30,72,143,0.20)" }}
+            >
+              {currentStage === "resume"      && <Upload size={28} style={{ color: "var(--spring)" }} />}
+              {currentStage === "discovery"   && <Search size={28} style={{ color: "var(--spring)" }} />}
+              {currentStage === "scoring"     && <Target size={28} style={{ color: "var(--nuit-light)" }} />}
+              {currentStage === "application" && <Send   size={28} style={{ color: "var(--mantis)" }} />}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Stats ── */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <MiniStat label="Resumes"       value={resumeCount}                  icon={FileText}  color="spring" />
+          <MiniStat label="Jobs Found"    value={stats?.total_jobs ?? 0}       icon={Briefcase} color="nuit" />
+          <MiniStat label="Scored"        value={stats?.pipeline?.scored ?? 0} icon={Target}    color={stats?.pipeline?.scored ? "mantis" : "nuit"} />
+          <MiniStat label="Avg ATS Score" value={avgScore > 0 ? `${Math.round(avgScore)}%` : "—"} icon={BarChart2} color={avgScore >= 80 ? "mantis" : avgScore >= 60 ? "warning" : "nuit"} />
+        </div>
+
+        {/* ── Pipeline funnel ── */}
+        <div className="rounded-2xl p-6" style={{ backgroundColor: "var(--midnight-card)", border: "1px solid var(--border)" }}>
+          <h2 className="text-sm font-semibold mb-5" style={{ color: "var(--text-secondary)" }}>Pipeline Funnel</h2>
+          <div className="flex items-center gap-2">
+            {[
+              { label: "Found",    count: stats?.pipeline?.found    ?? 0 },
+              { label: "Scored",   count: stats?.pipeline?.scored   ?? 0 },
+              { label: "Approved", count: stats?.pipeline?.approved ?? 0 },
+              { label: "Applied",  count: stats?.pipeline?.applied  ?? 0 },
+            ].map(({ label, count }, idx) => (
+              <div key={label} className="flex items-center gap-2 flex-1">
+                <div
+                  className="flex-1 text-center px-3 py-4 rounded-xl border"
+                  style={{
+                    backgroundColor: count > 0 ? "rgba(30,72,143,0.15)" : "rgba(0,22,45,0.6)",
+                    borderColor: count > 0 ? "rgba(30,72,143,0.40)" : "var(--border)",
+                  }}
+                >
+                  <p className="text-2xl font-bold tabular-nums" style={{ color: count > 0 ? "var(--praxeti)" : "var(--text-muted)" }}>{count}</p>
+                  <p className="text-xs mt-1 font-medium" style={{ color: "var(--text-muted)" }}>{label}</p>
+                </div>
+                {idx < 3 && <ArrowRight size={16} style={{ color: "rgba(30,72,143,0.45)", flexShrink: 0 }} />}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Quick links ── */}
+        <div>
+          <h2 className="text-sm font-semibold mb-3" style={{ color: "var(--text-secondary)" }}>Quick Access</h2>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              { label: "Upload Resume",      sub: "Add a new version",     href: "/resumes",      icon: Upload,   color: "spring" as const },
+              { label: "Discover Jobs",      sub: "Search & shortlist",    href: "/jobs",         icon: Search,   color: "nuit"   as const },
+              { label: "Run Scoring",        sub: "AI ATS analysis",       href: "/scoring",      icon: Target,   color: "nuit"   as const },
+              { label: "View Applications",  sub: "Track submissions",     href: "/applications", icon: Send,     color: "mantis" as const },
+            ].map(({ label, sub, href, icon: Icon, color }) => {
+              const ic = { spring: "var(--spring)", nuit: "var(--nuit-light)", mantis: "var(--mantis)" }[color];
+              const bg = { spring: "rgba(219,230,76,0.10)", nuit: "rgba(30,72,143,0.18)", mantis: "rgba(116,195,101,0.10)" }[color];
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className="flex items-center gap-3 p-4 rounded-xl group"
+                  style={{ backgroundColor: "var(--midnight-card)", border: "1px solid var(--border)" }}
+                  onMouseEnter={(e) => { const el = e.currentTarget as HTMLElement; el.style.borderColor = "var(--border-light)"; el.style.backgroundColor = "var(--midnight-hover)"; }}
+                  onMouseLeave={(e) => { const el = e.currentTarget as HTMLElement; el.style.borderColor = "var(--border)"; el.style.backgroundColor = "var(--midnight-card)"; }}
+                >
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: bg }}>
+                    <Icon size={16} style={{ color: ic }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate" style={{ color: "var(--praxeti)" }}>{label}</p>
+                    <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{sub}</p>
+                  </div>
+                  <ArrowRight size={13} style={{ color: "var(--text-muted)" }} />
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Recent applications ── */}
+        {(stats?.recent_applications?.length ?? 0) > 0 && (
+          <div className="rounded-2xl p-6" style={{ backgroundColor: "var(--midnight-card)", border: "1px solid var(--border)" }}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>Recent Applications</h2>
+              <Link href="/applications" className="text-xs flex items-center gap-1" style={{ color: "var(--nuit-light)" }}>
+                View all <ArrowRight size={11} />
+              </Link>
+            </div>
+            <div className="space-y-2">
+              {stats!.recent_applications.slice(0, 5).map((app) => {
+                const score = app.ats_score ?? app.ats_result?.overall_score;
                 return (
                   <div
                     key={app.id}
-                    className="flex items-center gap-3 py-2 border-b border-slate-700/40 last:border-0"
+                    className="flex items-center gap-3 py-2.5 px-3 rounded-lg"
+                    style={{ backgroundColor: "rgba(0,22,45,0.5)", border: "1px solid var(--border)" }}
                   >
-                    <Icon
-                      size={14}
-                      className={clsx("flex-shrink-0", statusCfg.color)}
-                    />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-slate-200 truncate font-medium">
-                        {app.job?.title ?? `Application #${app.id}`}
-                      </p>
-                      <p className="text-xs text-slate-500 truncate">
-                        {app.job?.company ?? "Unknown"} •{" "}
-                        {formatDate(app.applied_at || app.created_at)}
-                      </p>
+                      <p className="text-sm font-medium truncate" style={{ color: "var(--praxeti)" }}>{app.job?.title ?? `Application #${app.id}`}</p>
+                      <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{app.job?.company ?? "Unknown"} · {formatDate(app.applied_at || app.created_at)}</p>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {score !== undefined && (
-                        <span
-                          className={clsx(
-                            "badge border text-xs font-semibold",
-                            getScoreBg(score)
-                          )}
-                        >
-                          {score}%
-                        </span>
-                      )}
-                      <span
-                        className={clsx(
-                          "text-xs font-medium",
-                          statusCfg.color
-                        )}
-                      >
-                        {statusCfg.label}
-                      </span>
-                    </div>
+                    {score !== undefined && (
+                      <span className={clsx("badge border text-xs font-semibold", getScoreBg(score))}>{score}%</span>
+                    )}
+                    <span
+                      className="text-xs font-medium capitalize"
+                      style={{ color: app.status === "submitted" ? "var(--mantis)" : app.status === "failed" ? "#EF4444" : "var(--nuit-light)" }}
+                    >
+                      {app.status.replace(/_/g, " ")}
+                    </span>
                   </div>
                 );
               })}
             </div>
-          ) : (
-            <div className="py-12 flex flex-col items-center justify-center text-slate-600 gap-2">
-              <Clock size={32} className="text-slate-700" />
-              <p className="text-sm">No applications yet</p>
-              <Link
-                href="/jobs"
-                className="text-xs text-indigo-400 hover:text-indigo-300 mt-1"
-              >
-                Discover jobs to get started
-              </Link>
-            </div>
-          )}
-        </div>
-
-        {/* Quick Actions */}
-        <div className="bg-slate-800 border border-slate-700/60 rounded-xl p-6">
-          <h2 className="text-sm font-semibold text-slate-300 mb-5">
-            Quick Actions
-          </h2>
-          <div className="space-y-3">
-            <Link
-              href="/jobs"
-              className="flex items-center gap-3 p-4 rounded-xl bg-indigo-600/10 border border-indigo-500/25 hover:bg-indigo-600/20 hover:border-indigo-500/40 transition-all group"
-            >
-              <div className="w-9 h-9 rounded-lg bg-indigo-600/20 flex items-center justify-center flex-shrink-0 group-hover:bg-indigo-600/30 transition-colors">
-                <Search size={16} className="text-indigo-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-200">
-                  Search Jobs
-                </p>
-                <p className="text-xs text-slate-500 truncate">
-                  Find new opportunities
-                </p>
-              </div>
-              <ArrowRight
-                size={14}
-                className="text-slate-600 group-hover:text-indigo-400 transition-colors"
-              />
-            </Link>
-
-            <Link
-              href="/resumes"
-              className="flex items-center gap-3 p-4 rounded-xl bg-slate-700/30 border border-slate-700/50 hover:bg-slate-700/50 hover:border-slate-600 transition-all group"
-            >
-              <div className="w-9 h-9 rounded-lg bg-slate-700 flex items-center justify-center flex-shrink-0 group-hover:bg-slate-600 transition-colors">
-                <Upload size={16} className="text-slate-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-200">
-                  Upload Resume
-                </p>
-                <p className="text-xs text-slate-500 truncate">
-                  Add a new resume version
-                </p>
-              </div>
-              <ArrowRight
-                size={14}
-                className="text-slate-600 group-hover:text-slate-400 transition-colors"
-              />
-            </Link>
-
-            <Link
-              href="/applications"
-              className="flex items-center gap-3 p-4 rounded-xl bg-slate-700/30 border border-slate-700/50 hover:bg-slate-700/50 hover:border-slate-600 transition-all group"
-            >
-              <div className="w-9 h-9 rounded-lg bg-slate-700 flex items-center justify-center flex-shrink-0 group-hover:bg-slate-600 transition-colors">
-                <TrendingUp size={16} className="text-slate-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-200">
-                  View Pipeline
-                </p>
-                <p className="text-xs text-slate-500 truncate">
-                  Manage applications
-                </p>
-              </div>
-              <ArrowRight
-                size={14}
-                className="text-slate-600 group-hover:text-slate-400 transition-colors"
-              />
-            </Link>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import Sidebar from "@/components/Sidebar";
-import PipelineModeBar from "@/components/PipelineModeBar";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -22,12 +21,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={inter.variable}>
-      <body className="bg-slate-900 text-slate-100 antialiased">
+      <body className="antialiased" style={{ backgroundColor: "var(--midnight)", color: "var(--praxeti)" }}>
         <div className="flex h-screen overflow-hidden">
           <Sidebar />
-          <main className="flex-1 ml-64 overflow-y-auto bg-slate-900 flex flex-col">
-            {/* Pipeline mode bar — always visible across all pages */}
-            <PipelineModeBar />
+          <main
+            className="flex-1 ml-64 overflow-y-auto flex flex-col"
+            style={{ backgroundColor: "var(--midnight)" }}
+          >
             <div className="flex-1 min-h-0">{children}</div>
           </main>
         </div>
